@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+#
+#
+#                Lilith Linux install medium creator
+#
+#       Licensed Under BSD-3-Clause License. Please read LICENSE file
+#
+#
+
+HCLOS="${HCLOS:-/usr/sbin/hclos}"
+
+
+# Utils
+check_exist_config_files() {
+  files=("config.sh" "packages")
+  
+  for f in "${files[@]}"; do
+    if ! [[ -f "$f" ]]; then
+      echo "$f is not found in $PWD"
+      echo "Please create and config $f and retry this script"
+      exit 1
+    fi
+  done
+}
+
+check_and_create_required_dirs() {
+  create_dirs=("hooks" "hooks/initramfs" "hooks/squashfs")
+  for dir in "${create_dirs[@]}"; do
+    mkdir -p "$create_dirs"
+  done
+}
+
+
+### Initialization
+initialize() {
+  cp /etc/mklilithiso/templates/* . -r 
+}
+
+
+### Build
+
+gen_initramfs() {
+  CHROOT_DIR="./works/rootfs/initramfs"
+  HOOKS_DIR="./hooks/initramfs"
+
+  echo ">>> Running initramfs hooks..."
+
+  for hook in $(ls "${HOOKS_DIR}"/*.sh | sort); do
+      echo ">>> Running $(basename "$hook") ..."
+      cp "$hook" "$CHROOT_DIR/$(basename $hook)"
+      chroot "$CHROOT_DIR" /bin/bash "/$(basename "$hook")"
+      rm "$CHROOT_DIR/$(basename $hook)"
+  done
+
+  cd works/rootfs/initramfs && cpio -H newc -o | gzip > works/iso/boot/initramfs.cpio.gz
+}
+
+
+
+gen_squashfs() {
+  CHROOT_DIR="./works/rootfs/squashfs"
+  HOOKS_DIR="./hooks/squashfs"
+
+  echo ">>> Running squashfs hooks..."
+
+  for hook in $(ls "${HOOKS_DIR}"/*.sh | sort); do
+      echo ">>> Running $(basename "$hook") ..."
+      cp "$hook" "$CHROOT_DIR/$(basename $hook)"
+      chroot "$CHROOT_DIR" /bin/bash "/$(basename "$hook")"
+      rm "$CHROOT_DIR/$(basename $hook)"
+  done
+
+  cd works/rootfs && mksquashfs squashfs works/iso/boot/rootfs.squashfs -comp ${COMP:-gzip} -b 1M
+}
+
+gen_iso() {
+  grub-mkrescue -o "${TARGET:-./lilith-$(date +"%Y-%m-%d").iso}"
+}
+
+build() {
+  gen_initramfs
+  gen_squashfs
+  gen_iso
+}
+
+
+main() {
+  if [[ $# -ne 0 ]]; then
+      case ${1} in
+        "init") 
+          initialize
+          ;;
+        "build")
+          build
+          ;;
+        *)
+          echo "Unknown argment: $1"
+          exit 1
+      esac
+  else
+    echo "Usage: lithium [init|build|test]"
+  fi
+}
+
+
+main "$@"
+
+
