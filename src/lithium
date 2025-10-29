@@ -1,109 +1,150 @@
 #!/usr/bin/env bash
-
-#
+set -e
 #
 #                Lilith Linux install medium creator
 #
 #       Licensed Under BSD-3-Clause License. Please read LICENSE file
 #
-#
 
 HCLOS="${HCLOS:-/usr/sbin/hclos}"
 
+# ===============================
+# Utilities
+# ===============================
 
-# Utils
 check_exist_config_files() {
-  files=("config.sh" "packages")
-  
+  local files=("config.sh" "packages-initramfs" "packages-squashfs" "grub" "grub/grub.cfg")
   for f in "${files[@]}"; do
-    if ! [[ -f "$f" ]]; then
-      echo "$f is not found in $PWD"
-      echo "Please create and config $f and retry this script"
+    if [[ ! -e "$f" ]]; then
+      echo "ERROR: $f not found in $PWD"
+      echo "Please create and configure $f and retry this script."
       exit 1
     fi
   done
 }
 
 check_and_create_required_dirs() {
-  create_dirs=("hooks" "hooks/initramfs" "hooks/squashfs")
+  local create_dirs=("hooks" "hooks/initramfs" "hooks/squashfs")
   for dir in "${create_dirs[@]}"; do
-    mkdir -p "$create_dirs"
+    mkdir -p "$dir"
   done
 }
 
-
-### Initialization
 initialize() {
-  cp /etc/mklilithiso/templates/* . -r 
+  cp -r /etc/mklilithiso/templates/* .
+  echo "Initialized project with template files."
 }
 
+# ===============================
+# Package Installation
+# ===============================
 
-### Build
+install_packages() {
+  local target="$1"       # initramfs or squashfs
+  local pkgfile="packages-$target"
+  local prefix="./works/rootfs/$target"
 
-gen_initramfs() {
-  CHROOT_DIR="./works/rootfs/initramfs"
-  HOOKS_DIR="./hooks/initramfs"
+  mkdir -p "$prefix"
 
-  echo ">>> Running initramfs hooks..."
+  echo ">>> Updating package list for $target..."
+  "${HCLOS}" update --prefix "$prefix"
 
-  for hook in $(ls "${HOOKS_DIR}"/*.sh | sort); do
-      echo ">>> Running $(basename "$hook") ..."
-      cp "$hook" "$CHROOT_DIR/$(basename $hook)"
-      chroot "$CHROOT_DIR" /bin/bash "/$(basename "$hook")"
-      rm "$CHROOT_DIR/$(basename $hook)"
-  done
+  echo ">>> Installing busybox for $target..."
+  "${HCLOS}" install --prefix "$prefix" --disable-scripts busybox
 
-  cd works/rootfs/initramfs && cpio -H newc -o | gzip > works/iso/boot/initramfs.cpio.gz
-}
-
-
-
-gen_squashfs() {
-  CHROOT_DIR="./works/rootfs/squashfs"
-  HOOKS_DIR="./hooks/squashfs"
-
-  echo ">>> Running squashfs hooks..."
-
-  for hook in $(ls "${HOOKS_DIR}"/*.sh | sort); do
-      echo ">>> Running $(basename "$hook") ..."
-      cp "$hook" "$CHROOT_DIR/$(basename $hook)"
-      chroot "$CHROOT_DIR" /bin/bash "/$(basename "$hook")"
-      rm "$CHROOT_DIR/$(basename $hook)"
-  done
-
-  cd works/rootfs && mksquashfs squashfs works/iso/boot/rootfs.squashfs -comp ${COMP:-gzip} -b 1M
-}
-
-gen_iso() {
-  grub-mkrescue -o "${TARGET:-./lilith-$(date +"%Y-%m-%d").iso}"
-}
-
-build() {
-  gen_initramfs
-  gen_squashfs
-  gen_iso
-}
-
-
-main() {
-  if [[ $# -ne 0 ]]; then
-      case ${1} in
-        "init") 
-          initialize
-          ;;
-        "build")
-          build
-          ;;
-        *)
-          echo "Unknown argment: $1"
-          exit 1
-      esac
+  echo ">>> Installing packages for $target..."
+  local pkgs
+  pkgs=$(grep -vE '^\s*(#|$)' "$pkgfile" | xargs)
+  if [[ -n "$pkgs" ]]; then
+    "${HCLOS}" install --prefix "$prefix" $pkgs
   else
-    echo "Usage: lithium [init|build|test]"
+    echo "WARN: No packages listed in $pkgfile"
   fi
 }
 
+# ===============================
+# Hook Executor
+# ===============================
+
+run_hooks() {
+  local target="$1"
+  local chroot_dir="./works/rootfs/$target"
+  local hooks_dir="./hooks/$target"
+
+  echo ">>> Running ${target} hooks..."
+  [[ -d "$hooks_dir" ]] || return 0
+
+  for hook in $(ls "$hooks_dir"/*.sh 2>/dev/null | sort); do
+    echo ">>> Running $(basename "$hook") ..."
+    cp "$hook" "$chroot_dir/$(basename "$hook")"
+    chroot "$chroot_dir" /usr/bin/sh "/$(basename "$hook")"
+    rm "$chroot_dir/$(basename "$hook")"
+  done
+}
+
+# ===============================
+# Builders
+# ===============================
+
+gen_initramfs() {
+  run_hooks "initramfs"
+
+  echo ">>> Creating initramfs..."
+  mkdir -p works/iso/boot
+  (cd works/rootfs/initramfs && find . | cpio -H newc -o | gzip > ../../iso/boot/initramfs.cpio.gz)
+}
+
+gen_squashfs() {
+  run_hooks "squashfs"
+
+  echo ">>> Creating squashfs image..."
+  mkdir -p works/iso/boot
+  mksquashfs works/rootfs/squashfs works/iso/boot/rootfs.squashfs -comp "${COMP:-gzip}" -b 1M
+}
+
+gen_iso() {
+  echo ">>> Generating ISO image..."
+  cp grub works/iso/boot/ -r
+  grub-mkrescue -o "${TARGET:-./lilith-$(date +"%Y-%m-%d").iso} works/iso"
+}
+
+# ===============================
+# Build Flow
+# ===============================
+
+build() {
+  rm -rf "works"
+  check_exist_config_files
+  check_and_create_required_dirs
+
+  install_packages "initramfs"
+  install_packages "squashfs"
+
+  gen_initramfs
+  gen_squashfs
+  gen_iso
+
+  echo "Build completed successfully!"
+}
+
+# ===============================
+# Main Entrypoint
+# ===============================
+
+main() {
+  case "$1" in
+    init)
+      initialize
+      ;;
+    build)
+      build
+      ;;
+    *)
+      echo "Usage: $0 [init|build]"
+      exit 1
+      ;;
+  esac
+}
 
 main "$@"
-
 
