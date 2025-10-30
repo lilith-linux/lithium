@@ -5,8 +5,6 @@ cat >/init <<EOF
 #!/bin/sh
 export PATH="/bin:/sbin"
 
-echo 4 > /proc/sys/kernel/printk
-setconsole /dev/tty0 2>/dev/null || true
 
 mount -t proc none /proc
 mount -t sysfs none /sys
@@ -14,6 +12,8 @@ mount -t devtmpfs none /dev
 
 mkdir -p /newroot /overlay /merged
 
+echo 4 > /proc/sys/kernel/printk
+setconsole /dev/tty0 2>/dev/null || true
 
 echo "Waiting usb detection..."
 sleep 4
