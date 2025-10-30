@@ -19,10 +19,10 @@ echo "Waiting usb detection..."
 sleep 4
 
 for dev in /dev/sr0 /dev/sd*; do
-  echo "$$dev: checking..."
-  mount -o ro $$dev /mnt 2>/dev/null || continue
+  echo "\$dev: checking..."
+  mount -o ro \$dev /mnt 2>/dev/null || continue
   if [ -f /mnt/boot/rootfs.squashfs ]; then
-    echo "Found rootfs on $$dev"
+    echo "Found rootfs on \$dev"
 
     # mount squashfs first
     mount -t squashfs -o loop /mnt/boot/rootfs.squashfs /newroot || {
@@ -50,5 +50,6 @@ done
 
 echo "No rootfs found!"
 exec /bin/init
-
 EOF
+
+chmod +x /init

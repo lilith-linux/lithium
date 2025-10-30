@@ -102,10 +102,23 @@ gen_squashfs() {
   mksquashfs works/rootfs/squashfs works/iso/boot/rootfs.squashfs -comp "${COMP:-gzip}" -b 1M
 }
 
+gen_vmlinuz() {
+  echo ">>> Installing vmlinuz for iso..."
+  mkdir -p works/kernel
+  
+  ${HCLOS} update --prefix works/kernel
+
+  ${HCLOS} install --prefix works/kernel --disable-scripts busybox
+  ${HCLOS} install --prefix works/kernel linux
+
+  echo ">>> Copy vmlinuz..."
+  cp -v works/kernel/boot/vmlinuz works/iso/boot/vmlinuz
+}
+
 gen_iso() {
   echo ">>> Generating ISO image..."
   cp grub works/iso/boot/ -r
-  grub-mkrescue -o "${TARGET:-./lilith-$(date +"%Y-%m-%d").iso} works/iso"
+  grub-mkrescue -o "${TARGET:-./lilith-$(date +"%Y-%m-%d").iso}" "works/iso"
 }
 
 # ===============================
@@ -122,6 +135,7 @@ build() {
 
   gen_initramfs
   gen_squashfs
+  gen_vmlinuz
   gen_iso
 
   echo "Build completed successfully!"
